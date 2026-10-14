@@ -6,6 +6,10 @@ export interface Product { sku: string; name: string; category: string; stock: n
 export interface Customer { id: number; name: string; company: string; email: string; city: string; orders: number; spent: number; }
 export interface Employee { id: number; name: string; role: string; department: string; email: string; status: 'Active' | 'On leave'; joined: string; }
 
+export interface PurchaseOrder { id: string; vendor: string; date: string; expected: string; total: number; status: 'Draft' | 'Approved' | 'Received' | 'Cancelled'; }
+export interface Invoice { id: string; customer: string; due: string; amount: number; status: 'Paid' | 'Open' | 'Overdue'; }
+export interface TrialRow { account: string; debit: number; credit: number; }
+
 const names = ['Omar Hassan', 'Layla Mansour', 'Youssef Adel', 'Nour El-Din', 'Salma Khaled', 'Karim Fathy', 'Mariam Saad', 'Hany Gamal', 'Dina Ashraf', 'Tarek Samir', 'Rana Wael', 'Ali Mostafa'];
 const companies = ['Delta Trading', 'Nile Logistics', 'Atlas Foods', 'Orbit Tech', 'Sahara Steel', 'Pyramid Pharma', 'Cairo Textiles', 'Red Sea Marine', 'Alpha Retail', 'Horizon Build', 'Zad Supplies', 'Bright Energy'];
 const cities = ['Cairo', 'Alexandria', 'Giza', 'Muscat', 'Dubai', 'Riyadh', 'Amman', 'Doha'];
@@ -61,8 +65,30 @@ export class DataService {
     { who: 'Dina Ashraf', what: 'added a new vendor: Zad Supplies', when: 'Yesterday' }
   ];
 
+  readonly vendors = ['Gulf Components', 'Nile Packaging', 'Delta Chemicals', 'Orbit Parts', 'Atlas Metals', 'Zad Supplies'];
+
+  readonly purchaseOrders: PurchaseOrder[] = Array.from({ length: 18 }, (_, i) => {
+    const st: PurchaseOrder['status'][] = ['Approved', 'Received', 'Draft', 'Received', 'Approved', 'Cancelled'];
+    const d = new Date(2026, 9, 13 - i);
+    const e = new Date(d.getTime() + (5 + (i % 6)) * 86400000);
+    return { id: 'PO-' + (5560 - i), vendor: this.vendors[(i * 5) % this.vendors.length], date: d.toISOString(), expected: e.toISOString(), total: 800 + ((i * 2113) % 14000), status: st[(i * 5) % st.length] };
+  });
+
+  readonly invoices: Invoice[] = Array.from({ length: 20 }, (_, i) => {
+    const st: Invoice['status'][] = ['Paid', 'Open', 'Paid', 'Overdue', 'Open', 'Paid'];
+    const d = new Date(2026, 9, 20 - i * 2);
+    return { id: 'INV-' + (90330 - i), customer: companies[(i * 7) % companies.length], due: d.toISOString(), amount: 900 + ((i * 3371) % 12000), status: st[(i * 5) % st.length] };
+  });
+
+  readonly trialBalance: TrialRow[] = [
+    { account: 'Cash and bank', debit: 184000, credit: 0 }, { account: 'Accounts receivable', debit: 96500, credit: 0 },
+    { account: 'Inventory', debit: 212000, credit: 0 }, { account: 'Fixed assets', debit: 340000, credit: 0 },
+    { account: 'Accounts payable', debit: 0, credit: 78300 }, { account: 'Loans', debit: 0, credit: 150000 },
+    { account: 'Equity', debit: 0, credit: 250000 }, { account: 'Sales revenue', debit: 0, credit: 354200 }
+  ];
+
   statusColor(s: string): string {
-    return ({ Paid: 'green', Shipped: 'blue', Pending: 'orange', Cancelled: 'red', Active: 'green', 'On leave': 'orange' } as Record<string, string>)[s] ?? 'secondary';
+    return ({ Paid: 'green', Shipped: 'blue', Pending: 'orange', Cancelled: 'red', Active: 'green', 'On leave': 'orange', Draft: 'secondary', Approved: 'blue', Received: 'green', Open: 'orange', Overdue: 'red' } as Record<string, string>)[s] ?? 'secondary';
   }
   initials(n: string): string { return n.split(' ').map(p => p[0]).slice(0, 2).join(''); }
 }

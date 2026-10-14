@@ -3,12 +3,14 @@ import { CurrencyPipe } from '@angular/common';
 import { DataService } from '../core/data.service';
 import { PageHeader } from '../shared/page-header';
 
+import { Tr } from '../core/i18n.service';
+
 @Component({
   selector: 'app-customers',
-  imports: [CurrencyPipe, PageHeader],
+  imports: [Tr, CurrencyPipe, PageHeader],
   template: `
   <app-page-header title="Customers" pretitle="Sales">
-    <button class="btn btn-primary" type="button"><i class="ti ti-plus me-1"></i>Add customer</button>
+    <button class="btn btn-primary" type="button"><i class="ti ti-plus me-1"></i>{{ 'Add customer' | t }}</button>
   </app-page-header>
   <div class="page-body"><div class="container-xl">
     <div class="row row-cards">
@@ -22,8 +24,8 @@ import { PageHeader } from '../shared/page-header';
               <div class="mt-3"><span class="badge bg-blue-lt">{{ c.city }}</span></div>
             </div>
             <div class="d-flex">
-              <div class="card-btn flex-fill text-center py-2 border-end"><div class="h3 mb-0">{{ c.orders }}</div><div class="small text-secondary">Orders</div></div>
-              <div class="card-btn flex-fill text-center py-2"><div class="h3 mb-0">{{ c.spent | currency: 'USD' : 'symbol' : '1.0-0' }}</div><div class="small text-secondary">Spent</div></div>
+              <div class="card-btn flex-fill text-center py-2 border-end"><div class="h3 mb-0">{{ c.orders }}</div><div class="small text-secondary">{{ 'Orders' | t }}</div></div>
+              <div class="card-btn flex-fill text-center py-2"><div class="h3 mb-0">{{ c.spent | currency: 'USD' : 'symbol' : '1.0-0' }}</div><div class="small text-secondary">{{ 'Spent' | t }}</div></div>
             </div>
           </div>
         </div>

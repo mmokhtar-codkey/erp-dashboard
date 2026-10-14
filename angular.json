@@ -30,7 +30,16 @@
               }
             ],
             "styles": [
-              "node_modules/@tabler/core/dist/css/tabler.min.css",
+              {
+                "input": "node_modules/@tabler/core/dist/css/tabler.min.css",
+                "bundleName": "tabler-ltr",
+                "inject": false
+              },
+              {
+                "input": "node_modules/@tabler/core/dist/css/tabler.rtl.min.css",
+                "bundleName": "tabler-rtl",
+                "inject": false
+              },
               "node_modules/@tabler/icons-webfont/dist/tabler-icons.min.css",
               "src/styles.scss"
             ]
@@ -49,7 +58,15 @@
                   "maximumError": "8kB"
                 }
               ],
-              "outputHashing": "all"
+              "outputHashing": "all",
+              "optimization": {
+                "scripts": true,
+                "styles": {
+                  "minify": true,
+                  "inlineCritical": false
+                },
+                "fonts": false
+              }
             },
             "development": {
               "optimization": false,
@@ -90,7 +107,16 @@
               }
             ],
             "styles": [
-              "node_modules/@tabler/core/dist/css/tabler.min.css",
+              {
+                "input": "node_modules/@tabler/core/dist/css/tabler.min.css",
+                "bundleName": "tabler-ltr",
+                "inject": false
+              },
+              {
+                "input": "node_modules/@tabler/core/dist/css/tabler.rtl.min.css",
+                "bundleName": "tabler-rtl",
+                "inject": false
+              },
               "node_modules/@tabler/icons-webfont/dist/tabler-icons.min.css",
               "src/styles.scss"
             ]

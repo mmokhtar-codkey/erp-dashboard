@@ -2,3 +2,6 @@
 body { font-feature-settings: 'cv03', 'cv04', 'cv11'; }
 .table-responsive { overflow-x: auto; }
 .chart-svg { display: block; width: 100%; }
+
+html[dir='rtl'] { --tblr-font-sans-serif: 'Noto Sans Arabic', 'Inter', sans-serif; }
+[dir='rtl'] .ti-chevron-left, [dir='rtl'] .ti-chevron-right { transform: scaleX(-1); }
