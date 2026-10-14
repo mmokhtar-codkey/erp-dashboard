@@ -1,0 +1,52 @@
+From 69056d7b6b0b5fa51860720d293cf5b4a22e86a9 Mon Sep 17 00:00:00 2001
+From: ERP Dev <dev@example.com>
+Date: Wed, 14 Oct 2026 12:02:54 +0000
+Subject: [PATCH] Fix hidden sidebar (Tabler 1.6 needs data-bs-navbar-position)
+ and RTL chart/delta rendering
+
+---
+ src/app/pages/dashboard.ts | 2 +-
+ src/app/shared/charts.ts   | 2 +-
+ src/index.html             | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/app/pages/dashboard.ts b/src/app/pages/dashboard.ts
+index eda2b3c..734bdc5 100644
+--- a/src/app/pages/dashboard.ts
++++ b/src/app/pages/dashboard.ts
+@@ -24,7 +24,7 @@ import { Tr } from '../core/i18n.service';
+                 <div class="d-flex align-items-center">
+                   <div class="subheader">{{ k.label | t }}</div>
+                   <div class="ms-auto lh-1 {{ k.up ? 'text-green' : 'text-red' }}">
+-                    {{ k.delta }}<i class="ti ms-1" [class.ti-trending-up]="k.up" [class.ti-trending-down]="!k.up"></i>
++                    <span dir="ltr">{{ k.delta }}</span><i class="ti ms-1" [class.ti-trending-up]="k.up" [class.ti-trending-down]="!k.up"></i>
+                   </div>
+                 </div>
+                 <div class="h1 mb-3 mt-1">{{ k.value }}</div>
+diff --git a/src/app/shared/charts.ts b/src/app/shared/charts.ts
+index 1addded..d1fcc2a 100644
+--- a/src/app/shared/charts.ts
++++ b/src/app/shared/charts.ts
+@@ -28,7 +28,7 @@ export class AreaChart {
+ @Component({
+   selector: 'app-bar-chart',
+   template: `
+-  <svg class="chart-svg" viewBox="0 0 600 240" role="img" [attr.aria-label]="label()">
++  <svg class="chart-svg" style="direction: ltr" viewBox="0 0 600 240" role="img" [attr.aria-label]="label()">
+     @for (t of ticks(); track t) {
+       <line x1="30" x2="600" [attr.y1]="y(t)" [attr.y2]="y(t)" stroke="var(--tblr-border-color)" />
+       <text x="0" [attr.y]="y(t) + 4" font-size="11" fill="var(--tblr-secondary)">{{ t }}k</text>
+diff --git a/src/index.html b/src/index.html
+index ae3f11f..4dc17fc 100644
+--- a/src/index.html
++++ b/src/index.html
+@@ -1,5 +1,5 @@
+ <!doctype html>
+-<html lang="en" dir="ltr" data-bs-theme="light">
++<html lang="en" dir="ltr" data-bs-theme="light" data-bs-navbar-position="vertical">
+ <head>
+   <meta charset="utf-8">
+   <title>ERP Dashboard</title>
+-- 
+2.43.0
+

@@ -28,7 +28,7 @@ export class AreaChart {
 @Component({
   selector: 'app-bar-chart',
   template: `
-  <svg class="chart-svg" viewBox="0 0 600 240" role="img" [attr.aria-label]="label()">
+  <svg class="chart-svg" style="direction: ltr" viewBox="0 0 600 240" role="img" [attr.aria-label]="label()">
     @for (t of ticks(); track t) {
       <line x1="30" x2="600" [attr.y1]="y(t)" [attr.y2]="y(t)" stroke="var(--tblr-border-color)" />
       <text x="0" [attr.y]="y(t) + 4" font-size="11" fill="var(--tblr-secondary)">{{ t }}k</text>

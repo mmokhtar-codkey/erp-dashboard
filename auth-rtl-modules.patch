@@ -1,0 +1,1116 @@
+From 650d97f38e4e3f20a287739bd6179a6d9b6fb571 Mon Sep 17 00:00:00 2001
+From: ERP Dev <dev@example.com>
+Date: Wed, 14 Oct 2026 11:46:42 +0000
+Subject: [PATCH] Add Purchasing, Accounting, login with auth guard, and Arabic
+ RTL support
+
+---
+ README.md                     |  21 ++++--
+ angular.json                  |  32 ++++++++-
+ src/app/app.routes.ts         |   8 ++-
+ src/app/core/auth.guard.ts    |  19 ++++++
+ src/app/core/auth.service.ts  |  40 +++++++++++
+ src/app/core/data.service.ts  |  28 +++++++-
+ src/app/core/i18n.service.ts  |  30 +++++++++
+ src/app/core/translations.ts  | 122 ++++++++++++++++++++++++++++++++++
+ src/app/layout/layout.ts      |  63 +++++++++++++-----
+ src/app/pages/accounting.ts   |  69 +++++++++++++++++++
+ src/app/pages/customers.ts    |  10 +--
+ src/app/pages/dashboard.ts    |  32 ++++-----
+ src/app/pages/employees.ts    |  12 ++--
+ src/app/pages/inventory.ts    |  18 ++---
+ src/app/pages/login.ts        |  57 ++++++++++++++++
+ src/app/pages/orders.ts       |  26 ++++----
+ src/app/pages/purchasing.ts   |  57 ++++++++++++++++
+ src/app/shared/page-header.ts |   7 +-
+ src/index.html                |   6 +-
+ src/styles.scss               |   3 +
+ 20 files changed, 587 insertions(+), 73 deletions(-)
+ create mode 100644 src/app/core/auth.guard.ts
+ create mode 100644 src/app/core/auth.service.ts
+ create mode 100644 src/app/core/i18n.service.ts
+ create mode 100644 src/app/core/translations.ts
+ create mode 100644 src/app/pages/accounting.ts
+ create mode 100644 src/app/pages/login.ts
+ create mode 100644 src/app/pages/purchasing.ts
+
+diff --git a/README.md b/README.md
+index 3438aad..6d27845 100644
+--- a/README.md
++++ b/README.md
+@@ -8,8 +8,21 @@ npm run build      # production build in dist/
+ ```
+ Requires Node.js 20.19+ / 22.12+.
+ 
++## Sign in (demo accounts)
++| Email | Password | Role | Access |
++|---|---|---|---|
++| admin@erp.com | admin123 | admin | everything |
++| sales@erp.com | sales123 | sales | no Accounting or Employees |
++
++`src/app/core/auth.service.ts` holds the demo accounts. Replace `login()` with a call to your API and keep the token there.
++Routes are protected by `authGuard` (`core/auth.guard.ts`); a route with `data: { roles: ['admin'] }` also checks the role.
++
++## Arabic / RTL
++The language button in the top bar (or sidebar on mobile) switches English and Arabic, flips the layout to RTL with Tabler's RTL stylesheet, and remembers the choice.
++Add or edit Arabic text in `src/app/core/translations.ts` (keyed by the English text) and use `{{ 'Text' | t }}` in templates.
++
+ ## Structure
+-- `src/app/layout` – Tabler vertical sidebar, top bar, dark/light toggle
+-- `src/app/pages` – Dashboard, Sales orders, Inventory, Customers, Employees (lazy-loaded)
+-- `src/app/shared` – page header and SVG charts (area, bar, donut), no chart library needed
+-- `src/app/core/data.service.ts` – mock data; replace with HttpClient calls to your API
++- `src/app/layout` – Tabler vertical sidebar (role-aware menu), top bar, theme and language toggles
++- `src/app/pages` – Login, Dashboard, Sales orders, Purchasing, Inventory, Accounting, Customers, Employees (lazy-loaded)
++- `src/app/core` – auth service and guard, i18n service and `t` pipe, mock data service
++- `src/app/shared` – page header and SVG charts (area, bar, donut)
+diff --git a/angular.json b/angular.json
+index bcf701e..b693527 100644
+--- a/angular.json
++++ b/angular.json
+@@ -30,7 +30,16 @@
+               }
+             ],
+             "styles": [
+-              "node_modules/@tabler/core/dist/css/tabler.min.css",
++              {
++                "input": "node_modules/@tabler/core/dist/css/tabler.min.css",
++                "bundleName": "tabler-ltr",
++                "inject": false
++              },
++              {
++                "input": "node_modules/@tabler/core/dist/css/tabler.rtl.min.css",
++                "bundleName": "tabler-rtl",
++                "inject": false
++              },
+               "node_modules/@tabler/icons-webfont/dist/tabler-icons.min.css",
+               "src/styles.scss"
+             ]
+@@ -49,7 +58,15 @@
+                   "maximumError": "8kB"
+                 }
+               ],
+-              "outputHashing": "all"
++              "outputHashing": "all",
++              "optimization": {
++                "scripts": true,
++                "styles": {
++                  "minify": true,
++                  "inlineCritical": false
++                },
++                "fonts": false
++              }
+             },
+             "development": {
+               "optimization": false,
+@@ -90,7 +107,16 @@
+               }
+             ],
+             "styles": [
+-              "node_modules/@tabler/core/dist/css/tabler.min.css",
++              {
++                "input": "node_modules/@tabler/core/dist/css/tabler.min.css",
++                "bundleName": "tabler-ltr",
++                "inject": false
++              },
++              {
++                "input": "node_modules/@tabler/core/dist/css/tabler.rtl.min.css",
++                "bundleName": "tabler-rtl",
++                "inject": false
++              },
+               "node_modules/@tabler/icons-webfont/dist/tabler-icons.min.css",
+               "src/styles.scss"
+             ]
+diff --git a/src/app/app.routes.ts b/src/app/app.routes.ts
+index a848f54..b682408 100644
+--- a/src/app/app.routes.ts
++++ b/src/app/app.routes.ts
+@@ -1,16 +1,22 @@
+ import { Routes } from '@angular/router';
+ import { Layout } from './layout/layout';
++import { authGuard, guestGuard } from './core/auth.guard';
+ 
+ export const routes: Routes = [
++  { path: 'login', title: 'Sign in', canActivate: [guestGuard], loadComponent: () => import('./pages/login').then(m => m.Login) },
+   {
+     path: '',
+     component: Layout,
++    canActivate: [authGuard],
++    canActivateChild: [authGuard],
+     children: [
+       { path: '', pathMatch: 'full', title: 'Dashboard', loadComponent: () => import('./pages/dashboard').then(m => m.Dashboard) },
+       { path: 'orders', title: 'Sales orders', loadComponent: () => import('./pages/orders').then(m => m.Orders) },
++      { path: 'purchasing', title: 'Purchasing', loadComponent: () => import('./pages/purchasing').then(m => m.Purchasing) },
+       { path: 'inventory', title: 'Inventory', loadComponent: () => import('./pages/inventory').then(m => m.Inventory) },
++      { path: 'accounting', title: 'Accounting', data: { roles: ['admin'] }, loadComponent: () => import('./pages/accounting').then(m => m.Accounting) },
+       { path: 'customers', title: 'Customers', loadComponent: () => import('./pages/customers').then(m => m.Customers) },
+-      { path: 'employees', title: 'Employees', loadComponent: () => import('./pages/employees').then(m => m.Employees) }
++      { path: 'employees', title: 'Employees', data: { roles: ['admin'] }, loadComponent: () => import('./pages/employees').then(m => m.Employees) }
+     ]
+   },
+   { path: '**', redirectTo: '' }
+diff --git a/src/app/core/auth.guard.ts b/src/app/core/auth.guard.ts
+new file mode 100644
+index 0000000..8e71448
+--- /dev/null
++++ b/src/app/core/auth.guard.ts
+@@ -0,0 +1,19 @@
++import { inject } from '@angular/core';
++import { CanActivateChildFn, CanActivateFn, Router } from '@angular/router';
++import { Auth, Role } from './auth.service';
++
++/** Needs a signed-in user; if the route has data.roles, the user must also have one of them. */
++export const authGuard: CanActivateFn & CanActivateChildFn = (route, state) => {
++  const auth = inject(Auth);
++  const router = inject(Router);
++  if (!auth.isLoggedIn()) {
++    return router.createUrlTree(['/login'], { queryParams: { returnUrl: state.url } });
++  }
++  const roles = route.data['roles'] as Role[] | undefined;
++  return auth.hasRole(roles) ? true : router.createUrlTree(['/']);
++};
++
++/** Keeps signed-in users away from the login page. */
++export const guestGuard: CanActivateFn = () => {
++  return inject(Auth).isLoggedIn() ? inject(Router).createUrlTree(['/']) : true;
++};
+diff --git a/src/app/core/auth.service.ts b/src/app/core/auth.service.ts
+new file mode 100644
+index 0000000..8ba58db
+--- /dev/null
++++ b/src/app/core/auth.service.ts
+@@ -0,0 +1,40 @@
++import { Injectable, computed, signal } from '@angular/core';
++
++export type Role = 'admin' | 'sales';
++export interface User { name: string; email: string; role: Role; }
++
++// Demo accounts only. Replace login() with a call to your API (and store its token).
++const ACCOUNTS: (User & { password: string })[] = [
++  { email: 'admin@erp.com', password: 'admin123', name: 'Admin User', role: 'admin' },
++  { email: 'sales@erp.com', password: 'sales123', name: 'Sales User', role: 'sales' }
++];
++
++@Injectable({ providedIn: 'root' })
++export class Auth {
++  private readonly KEY = 'erp_session';
++  readonly user = signal<User | null>(this.load());
++  readonly isLoggedIn = computed(() => this.user() !== null);
++
++  login(email: string, password: string): boolean {
++    const a = ACCOUNTS.find(x => x.email === email.trim().toLowerCase() && x.password === password);
++    if (!a) return false;
++    const user: User = { name: a.name, email: a.email, role: a.role };
++    this.user.set(user);
++    localStorage.setItem(this.KEY, JSON.stringify(user));
++    return true;
++  }
++
++  logout() {
++    this.user.set(null);
++    localStorage.removeItem(this.KEY);
++  }
++
++  hasRole(roles?: Role[]): boolean {
++    const u = this.user();
++    return !!u && (!roles || roles.includes(u.role));
++  }
++
++  private load(): User | null {
++    try { return JSON.parse(localStorage.getItem(this.KEY) ?? 'null'); } catch { return null; }
++  }
++}
+diff --git a/src/app/core/data.service.ts b/src/app/core/data.service.ts
+index 274d762..a87d614 100644
+--- a/src/app/core/data.service.ts
++++ b/src/app/core/data.service.ts
+@@ -6,6 +6,10 @@ export interface Product { sku: string; name: string; category: string; stock: n
+ export interface Customer { id: number; name: string; company: string; email: string; city: string; orders: number; spent: number; }
+ export interface Employee { id: number; name: string; role: string; department: string; email: string; status: 'Active' | 'On leave'; joined: string; }
+ 
++export interface PurchaseOrder { id: string; vendor: string; date: string; expected: string; total: number; status: 'Draft' | 'Approved' | 'Received' | 'Cancelled'; }
++export interface Invoice { id: string; customer: string; due: string; amount: number; status: 'Paid' | 'Open' | 'Overdue'; }
++export interface TrialRow { account: string; debit: number; credit: number; }
++
+ const names = ['Omar Hassan', 'Layla Mansour', 'Youssef Adel', 'Nour El-Din', 'Salma Khaled', 'Karim Fathy', 'Mariam Saad', 'Hany Gamal', 'Dina Ashraf', 'Tarek Samir', 'Rana Wael', 'Ali Mostafa'];
+ const companies = ['Delta Trading', 'Nile Logistics', 'Atlas Foods', 'Orbit Tech', 'Sahara Steel', 'Pyramid Pharma', 'Cairo Textiles', 'Red Sea Marine', 'Alpha Retail', 'Horizon Build', 'Zad Supplies', 'Bright Energy'];
+ const cities = ['Cairo', 'Alexandria', 'Giza', 'Muscat', 'Dubai', 'Riyadh', 'Amman', 'Doha'];
+@@ -61,8 +65,30 @@ export class DataService {
+     { who: 'Dina Ashraf', what: 'added a new vendor: Zad Supplies', when: 'Yesterday' }
+   ];
+ 
++  readonly vendors = ['Gulf Components', 'Nile Packaging', 'Delta Chemicals', 'Orbit Parts', 'Atlas Metals', 'Zad Supplies'];
++
++  readonly purchaseOrders: PurchaseOrder[] = Array.from({ length: 18 }, (_, i) => {
++    const st: PurchaseOrder['status'][] = ['Approved', 'Received', 'Draft', 'Received', 'Approved', 'Cancelled'];
++    const d = new Date(2026, 9, 13 - i);
++    const e = new Date(d.getTime() + (5 + (i % 6)) * 86400000);
++    return { id: 'PO-' + (5560 - i), vendor: this.vendors[(i * 5) % this.vendors.length], date: d.toISOString(), expected: e.toISOString(), total: 800 + ((i * 2113) % 14000), status: st[(i * 5) % st.length] };
++  });
++
++  readonly invoices: Invoice[] = Array.from({ length: 20 }, (_, i) => {
++    const st: Invoice['status'][] = ['Paid', 'Open', 'Paid', 'Overdue', 'Open', 'Paid'];
++    const d = new Date(2026, 9, 20 - i * 2);
++    return { id: 'INV-' + (90330 - i), customer: companies[(i * 7) % companies.length], due: d.toISOString(), amount: 900 + ((i * 3371) % 12000), status: st[(i * 5) % st.length] };
++  });
++
++  readonly trialBalance: TrialRow[] = [
++    { account: 'Cash and bank', debit: 184000, credit: 0 }, { account: 'Accounts receivable', debit: 96500, credit: 0 },
++    { account: 'Inventory', debit: 212000, credit: 0 }, { account: 'Fixed assets', debit: 340000, credit: 0 },
++    { account: 'Accounts payable', debit: 0, credit: 78300 }, { account: 'Loans', debit: 0, credit: 150000 },
++    { account: 'Equity', debit: 0, credit: 250000 }, { account: 'Sales revenue', debit: 0, credit: 354200 }
++  ];
++
+   statusColor(s: string): string {
+-    return ({ Paid: 'green', Shipped: 'blue', Pending: 'orange', Cancelled: 'red', Active: 'green', 'On leave': 'orange' } as Record<string, string>)[s] ?? 'secondary';
++    return ({ Paid: 'green', Shipped: 'blue', Pending: 'orange', Cancelled: 'red', Active: 'green', 'On leave': 'orange', Draft: 'secondary', Approved: 'blue', Received: 'green', Open: 'orange', Overdue: 'red' } as Record<string, string>)[s] ?? 'secondary';
+   }
+   initials(n: string): string { return n.split(' ').map(p => p[0]).slice(0, 2).join(''); }
+ }
+diff --git a/src/app/core/i18n.service.ts b/src/app/core/i18n.service.ts
+new file mode 100644
+index 0000000..14137c0
+--- /dev/null
++++ b/src/app/core/i18n.service.ts
+@@ -0,0 +1,30 @@
++import { Injectable, Pipe, PipeTransform, effect, inject, signal } from '@angular/core';
++import { AR } from './translations';
++
++export type Lang = 'en' | 'ar';
++
++@Injectable({ providedIn: 'root' })
++export class I18n {
++  readonly lang = signal<Lang>(localStorage.getItem('lang') === 'ar' ? 'ar' : 'en');
++
++  constructor() {
++    effect(() => {
++      const ar = this.lang() === 'ar';
++      const root = document.documentElement;
++      root.lang = this.lang();
++      root.dir = ar ? 'rtl' : 'ltr';
++      document.getElementById('tabler-css')?.setAttribute('href', ar ? 'tabler-rtl.css' : 'tabler-ltr.css');
++      localStorage.setItem('lang', this.lang());
++    });
++  }
++
++  toggle() { this.lang.update(l => (l === 'ar' ? 'en' : 'ar')); }
++  t(key: string): string { return this.lang() === 'ar' ? (AR[key] ?? key) : key; }
++}
++
++/** Usage: {{ 'Dashboard' | t }}. Unknown keys fall back to the English text. */
++@Pipe({ name: 't', pure: false })
++export class Tr implements PipeTransform {
++  private i18n = inject(I18n);
++  transform(key: string | null | undefined): string { return key ? this.i18n.t(key) : ''; }
++}
+diff --git a/src/app/core/translations.ts b/src/app/core/translations.ts
+new file mode 100644
+index 0000000..ecac890
+--- /dev/null
++++ b/src/app/core/translations.ts
+@@ -0,0 +1,122 @@
++/** Arabic translations keyed by the English UI text. Missing keys fall back to English. */
++export const AR: Record<string, string> = {
++  "Dashboard": "لوحة التحكم",
++  "Sales orders": "أوامر البيع",
++  "Inventory": "المخزون",
++  "Customers": "العملاء",
++  "Employees": "الموظفون",
++  "Purchasing": "المشتريات",
++  "Accounting": "الحسابات",
++  "Overview": "نظرة عامة",
++  "Sales": "المبيعات",
++  "Warehouse": "المستودع",
++  "Human resources": "الموارد البشرية",
++  "Procurement": "التوريد",
++  "Finance": "المالية",
++  "Search orders, products, customers…": "ابحث في الطلبات والمنتجات والعملاء…",
++  "Search order or customer": "ابحث برقم الطلب أو العميل",
++  "ERP Suite": "نظام ERP",
++  "ERP Suite · built with Angular and Tabler": "نظام ERP · مبني بـ Angular وTabler",
++  "Administrator": "مدير النظام",
++  "Sign out": "تسجيل الخروج",
++  "New sales order": "أمر بيع جديد",
++  "Revenue (YTD)": "الإيرادات (منذ بداية العام)",
++  "Open orders": "الطلبات المفتوحة",
++  "Active customers": "العملاء النشطون",
++  "Items below reorder level": "أصناف تحت حد إعادة الطلب",
++  "Revenue vs expenses (thousands, 2026)": "الإيرادات مقابل المصروفات (بالآلاف، 2026)",
++  "Revenue": "الإيرادات",
++  "Expenses": "المصروفات",
++  "Sales by category": "المبيعات حسب الفئة",
++  "Electronics": "إلكترونيات",
++  "Furniture": "أثاث",
++  "Office supplies": "مستلزمات مكتبية",
++  "Other": "أخرى",
++  "Recent sales orders": "أحدث أوامر البيع",
++  "View all": "عرض الكل",
++  "Order": "الطلب",
++  "Customer": "العميل",
++  "Date": "التاريخ",
++  "Total": "الإجمالي",
++  "Status": "الحالة",
++  "Paid": "مدفوع",
++  "Pending": "قيد الانتظار",
++  "Shipped": "تم الشحن",
++  "Cancelled": "ملغي",
++  "Needs restocking": "يحتاج إعادة تزويد",
++  "left": "متبقي",
++  "Team activity": "نشاط الفريق",
++  "orders": "طلب",
++  "All statuses": "كل الحالات",
++  "Items": "الأصناف",
++  "No orders match your filters. Clear the search or choose another status.": "لا توجد طلبات مطابقة. امسح البحث أو اختر حالة أخرى.",
++  "Page": "صفحة",
++  "of": "من",
++  "Previous": "السابق",
++  "Next": "التالي",
++  "Add product": "إضافة منتج",
++  "Products": "المنتجات",
++  "Below reorder level": "تحت حد إعادة الطلب",
++  "Stock value": "قيمة المخزون",
++  "SKU": "الرمز",
++  "Product": "المنتج",
++  "Category": "الفئة",
++  "Stock level": "مستوى المخزون",
++  "Unit price": "سعر الوحدة",
++  "Reorder": "إعادة طلب",
++  "In stock": "متوفر",
++  "Add customer": "إضافة عميل",
++  "Orders": "الطلبات",
++  "Spent": "المشتريات",
++  "Add employee": "إضافة موظف",
++  "Employee": "الموظف",
++  "Role": "الوظيفة",
++  "Department": "القسم",
++  "Joined": "تاريخ التعيين",
++  "Active": "نشط",
++  "On leave": "في إجازة",
++  "HR": "الموارد البشرية",
++  "IT": "تقنية المعلومات",
++  "Account manager": "مدير حساب",
++  "Accountant": "محاسب",
++  "Stock controller": "مراقب مخزون",
++  "HR specialist": "أخصائي موارد بشرية",
++  "Systems engineer": "مهندس نظم",
++  "Buyer": "مسؤول مشتريات",
++  "New purchase order": "أمر شراء جديد",
++  "Open purchase orders": "أوامر شراء مفتوحة",
++  "Awaiting approval": "بانتظار الاعتماد",
++  "Spend this month": "مشتريات الشهر",
++  "Vendor": "المورد",
++  "Expected": "التسليم المتوقع",
++  "Draft": "مسودة",
++  "Approved": "معتمد",
++  "Received": "تم الاستلام",
++  "New invoice": "فاتورة جديدة",
++  "Receivables": "الذمم المدينة",
++  "Overdue": "متأخرة",
++  "Payables": "الذمم الدائنة",
++  "Cash balance": "الرصيد النقدي",
++  "Invoices": "الفواتير",
++  "Invoice": "الفاتورة",
++  "Due date": "تاريخ الاستحقاق",
++  "Amount": "المبلغ",
++  "Open": "مفتوحة",
++  "Trial balance": "ميزان المراجعة",
++  "Account": "الحساب",
++  "Debit": "مدين",
++  "Credit": "دائن",
++  "Cash and bank": "النقدية والبنوك",
++  "Accounts receivable": "الذمم المدينة",
++  "Fixed assets": "الأصول الثابتة",
++  "Accounts payable": "الذمم الدائنة",
++  "Loans": "القروض",
++  "Equity": "حقوق الملكية",
++  "Sales revenue": "إيرادات المبيعات",
++  "Sign in": "تسجيل الدخول",
++  "Sign in to your account": "سجّل الدخول إلى حسابك",
++  "Email": "البريد الإلكتروني",
++  "Password": "كلمة المرور",
++  "Invalid email or password.": "البريد الإلكتروني أو كلمة المرور غير صحيحة.",
++  "Demo account: admin@erp.com / admin123": "حساب تجريبي: admin@erp.com / admin123"
++};
+diff --git a/src/app/layout/layout.ts b/src/app/layout/layout.ts
+index 286667f..9308633 100644
+--- a/src/app/layout/layout.ts
++++ b/src/app/layout/layout.ts
+@@ -1,9 +1,15 @@
+-import { Component, signal } from '@angular/core';
+-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
++import { Component, computed, inject, signal } from '@angular/core';
++import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
++import { Auth, Role } from '../core/auth.service';
++import { I18n } from '../core/i18n.service';
++
++interface NavItem { path: string; label: string; icon: string; roles?: Role[]; }
++
++import { Tr } from '../core/i18n.service';
+ 
+ @Component({
+   selector: 'app-layout',
+-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
++  imports: [Tr, RouterOutlet, RouterLink, RouterLinkActive],
+   template: `
+   <div class="page">
+     <aside class="navbar navbar-vertical navbar-expand-lg" data-bs-theme="dark">
+@@ -14,19 +20,31 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+         <h1 class="navbar-brand navbar-brand-autodark">
+           <a routerLink="/" class="d-flex align-items-center gap-2 text-white text-decoration-none">
+             <span class="avatar avatar-sm bg-primary text-white"><i class="ti ti-building-factory-2"></i></span>
+-            <span>ERP Suite</span>
++            <span>{{ 'ERP Suite' | t }}</span>
+           </a>
+         </h1>
+         <div class="collapse navbar-collapse" [class.show]="menuOpen()">
+           <ul class="navbar-nav pt-lg-3">
+-            @for (item of nav; track item.path) {
++            @for (item of visibleNav(); track item.path) {
+               <li class="nav-item">
+                 <a class="nav-link" [routerLink]="item.path" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: item.path === '/' }" (click)="menuOpen.set(false)">
+                   <span class="nav-link-icon d-md-none d-lg-inline-block"><i class="ti ti-{{ item.icon }}"></i></span>
+-                  <span class="nav-link-title">{{ item.label }}</span>
++                  <span class="nav-link-title">{{ item.label | t }}</span>
+                 </a>
+               </li>
+             }
++            <li class="nav-item d-lg-none">
++              <button class="nav-link w-100 bg-transparent border-0" type="button" (click)="i18n.toggle()">
++                <span class="nav-link-icon d-md-none d-lg-inline-block"><i class="ti ti-language"></i></span>
++                <span class="nav-link-title">{{ i18n.lang() === 'ar' ? 'English' : 'العربية' }}</span>
++              </button>
++            </li>
++            <li class="nav-item d-lg-none">
++              <button class="nav-link w-100 bg-transparent border-0" type="button" (click)="logout()">
++                <span class="nav-link-icon d-md-none d-lg-inline-block"><i class="ti ti-logout"></i></span>
++                <span class="nav-link-title">{{ 'Sign out' | t }}</span>
++              </button>
++            </li>
+           </ul>
+         </div>
+       </div>
+@@ -35,24 +53,23 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+     <header class="navbar navbar-expand-md d-none d-lg-flex d-print-none">
+       <div class="container-xl">
+         <div class="navbar-nav flex-row order-md-last align-items-center gap-2">
+-          <button class="nav-link px-0" type="button" (click)="toggleTheme()" [attr.aria-label]="dark() ? 'Switch to light mode' : 'Switch to dark mode'">
++          <button class="nav-link px-2" type="button" (click)="i18n.toggle()">{{ i18n.lang() === 'ar' ? 'English' : 'العربية' }}</button>
++          <button class="nav-link px-0" type="button" (click)="toggleTheme()" aria-label="Toggle theme">
+             <i class="ti" [class.ti-moon]="!dark()" [class.ti-sun]="dark()"></i>
+           </button>
+-          <button class="nav-link px-0 position-relative" type="button" aria-label="Notifications">
+-            <i class="ti ti-bell"></i><span class="badge bg-red badge-notification badge-blink"></span>
+-          </button>
+           <div class="d-flex align-items-center gap-2 ps-2">
+-            <span class="avatar avatar-sm">SA</span>
++            <span class="avatar avatar-sm">{{ initials() }}</span>
+             <div class="d-none d-xl-block lh-1">
+-              <div>Software Engineer</div>
+-              <div class="mt-1 small text-secondary">Administrator</div>
++              <div>{{ auth.user()?.name }}</div>
++              <div class="mt-1 small text-secondary">{{ (auth.user()?.role === 'admin' ? 'Administrator' : 'Sales') | t }}</div>
+             </div>
+           </div>
++          <button class="nav-link px-2" type="button" (click)="logout()" title="Sign out" aria-label="Sign out"><i class="ti ti-logout"></i></button>
+         </div>
+         <div class="collapse navbar-collapse">
+           <div class="input-icon w-100" style="max-width: 24rem">
+             <span class="input-icon-addon"><i class="ti ti-search"></i></span>
+-            <input type="text" class="form-control" placeholder="Search orders, products, customers…" aria-label="Search">
++            <input type="text" class="form-control" [placeholder]="'Search orders, products, customers…' | t" aria-label="Search">
+           </div>
+         </div>
+       </div>
+@@ -61,23 +78,35 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+     <div class="page-wrapper">
+       <router-outlet />
+       <footer class="footer footer-transparent d-print-none">
+-        <div class="container-xl text-center text-secondary">ERP Suite · built with Angular and Tabler</div>
++        <div class="container-xl text-center text-secondary">{{ 'ERP Suite · built with Angular and Tabler' | t }}</div>
+       </footer>
+     </div>
+   </div>`
+ })
+ export class Layout {
++  auth = inject(Auth);
++  i18n = inject(I18n);
++  private router = inject(Router);
+   menuOpen = signal(false);
+   dark = signal(false);
+-  nav = [
++  private nav: NavItem[] = [
+     { path: '/', label: 'Dashboard', icon: 'home' },
+     { path: '/orders', label: 'Sales orders', icon: 'shopping-cart' },
++    { path: '/purchasing', label: 'Purchasing', icon: 'truck-delivery' },
+     { path: '/inventory', label: 'Inventory', icon: 'packages' },
++    { path: '/accounting', label: 'Accounting', icon: 'report-money', roles: ['admin'] },
+     { path: '/customers', label: 'Customers', icon: 'users' },
+-    { path: '/employees', label: 'Employees', icon: 'id-badge-2' }
++    { path: '/employees', label: 'Employees', icon: 'id-badge-2', roles: ['admin'] }
+   ];
++  visibleNav = computed(() => this.nav.filter(n => this.auth.hasRole(n.roles)));
++  initials = computed(() => (this.auth.user()?.name ?? '').split(' ').map(p => p[0]).slice(0, 2).join(''));
++
+   toggleTheme() {
+     this.dark.update(v => !v);
+     document.documentElement.setAttribute('data-bs-theme', this.dark() ? 'dark' : 'light');
+   }
++  logout() {
++    this.auth.logout();
++    this.router.navigateByUrl('/login');
++  }
+ }
+diff --git a/src/app/pages/accounting.ts b/src/app/pages/accounting.ts
+new file mode 100644
+index 0000000..385940b
+--- /dev/null
++++ b/src/app/pages/accounting.ts
+@@ -0,0 +1,69 @@
++import { Component, inject } from '@angular/core';
++import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
++import { DataService } from '../core/data.service';
++import { PageHeader } from '../shared/page-header';
++
++import { Tr } from '../core/i18n.service';
++
++@Component({
++  selector: 'app-accounting',
++  imports: [Tr, CurrencyPipe, DatePipe, DecimalPipe, PageHeader],
++  template: `
++  <app-page-header title="Accounting" pretitle="Finance">
++    <button class="btn btn-primary" type="button"><i class="ti ti-plus me-1"></i>{{ 'New invoice' | t }}</button>
++  </app-page-header>
++  <div class="page-body"><div class="container-xl">
++    <div class="row row-cards">
++      <div class="col-sm-6 col-lg-3"><div class="card card-body"><div class="subheader">{{ 'Receivables' | t }}</div><div class="h1 mb-0">{{ receivables | currency: 'USD' : 'symbol' : '1.0-0' }}</div></div></div>
++      <div class="col-sm-6 col-lg-3"><div class="card card-body"><div class="subheader">{{ 'Overdue' | t }}</div><div class="h1 mb-0 text-red">{{ overdue | currency: 'USD' : 'symbol' : '1.0-0' }}</div></div></div>
++      <div class="col-sm-6 col-lg-3"><div class="card card-body"><div class="subheader">{{ 'Payables' | t }}</div><div class="h1 mb-0">{{ payables | currency: 'USD' : 'symbol' : '1.0-0' }}</div></div></div>
++      <div class="col-sm-6 col-lg-3"><div class="card card-body"><div class="subheader">{{ 'Cash balance' | t }}</div><div class="h1 mb-0 text-green">{{ cash | currency: 'USD' : 'symbol' : '1.0-0' }}</div></div></div>
++
++      <div class="col-lg-8">
++        <div class="card">
++          <div class="card-header"><h3 class="card-title">{{ 'Invoices' | t }}</h3></div>
++          <div class="table-responsive">
++            <table class="table card-table table-vcenter text-nowrap">
++              <thead><tr><th>{{ 'Invoice' | t }}</th><th>{{ 'Customer' | t }}</th><th>{{ 'Due date' | t }}</th><th class="text-end">{{ 'Amount' | t }}</th><th>{{ 'Status' | t }}</th></tr></thead>
++              <tbody>
++                @for (inv of data.invoices; track inv.id) {
++                  <tr>
++                    <td class="fw-medium">{{ inv.id }}</td><td>{{ inv.customer }}</td><td class="text-secondary">{{ inv.due | date: 'mediumDate' }}</td>
++                    <td class="text-end">{{ inv.amount | currency: 'USD' : 'symbol' : '1.0-0' }}</td>
++                    <td><span class="badge bg-{{ data.statusColor(inv.status) }}-lt">{{ inv.status | t }}</span></td>
++                  </tr>
++                }
++              </tbody>
++            </table>
++          </div>
++        </div>
++      </div>
++
++      <div class="col-lg-4">
++        <div class="card">
++          <div class="card-header"><h3 class="card-title">{{ 'Trial balance' | t }}</h3></div>
++          <div class="table-responsive">
++            <table class="table card-table table-vcenter">
++              <thead><tr><th>{{ 'Account' | t }}</th><th class="text-end">{{ 'Debit' | t }}</th><th class="text-end">{{ 'Credit' | t }}</th></tr></thead>
++              <tbody>
++                @for (r of data.trialBalance; track r.account) {
++                  <tr><td>{{ r.account | t }}</td><td class="text-end">{{ r.debit ? (r.debit | number: '1.0-0') : '' }}</td><td class="text-end">{{ r.credit ? (r.credit | number: '1.0-0') : '' }}</td></tr>
++                }
++                <tr class="fw-bold"><td>{{ 'Total' | t }}</td><td class="text-end">{{ totalDebit | number: '1.0-0' }}</td><td class="text-end">{{ totalCredit | number: '1.0-0' }}</td></tr>
++              </tbody>
++            </table>
++          </div>
++        </div>
++      </div>
++    </div>
++  </div></div>`
++})
++export class Accounting {
++  data = inject(DataService);
++  receivables = this.data.invoices.filter(i => i.status !== 'Paid').reduce((s, i) => s + i.amount, 0);
++  overdue = this.data.invoices.filter(i => i.status === 'Overdue').reduce((s, i) => s + i.amount, 0);
++  payables = this.data.purchaseOrders.filter(p => p.status === 'Approved' || p.status === 'Received').reduce((s, p) => s + p.total, 0);
++  cash = this.data.trialBalance.find(r => r.account === 'Cash and bank')?.debit ?? 0;
++  totalDebit = this.data.trialBalance.reduce((s, r) => s + r.debit, 0);
++  totalCredit = this.data.trialBalance.reduce((s, r) => s + r.credit, 0);
++}
+diff --git a/src/app/pages/customers.ts b/src/app/pages/customers.ts
+index a2211da..eb1ed91 100644
+--- a/src/app/pages/customers.ts
++++ b/src/app/pages/customers.ts
+@@ -3,12 +3,14 @@ import { CurrencyPipe } from '@angular/common';
+ import { DataService } from '../core/data.service';
+ import { PageHeader } from '../shared/page-header';
+ 
++import { Tr } from '../core/i18n.service';
++
+ @Component({
+   selector: 'app-customers',
+-  imports: [CurrencyPipe, PageHeader],
++  imports: [Tr, CurrencyPipe, PageHeader],
+   template: `
+   <app-page-header title="Customers" pretitle="Sales">
+-    <button class="btn btn-primary" type="button"><i class="ti ti-plus me-1"></i>Add customer</button>
++    <button class="btn btn-primary" type="button"><i class="ti ti-plus me-1"></i>{{ 'Add customer' | t }}</button>
+   </app-page-header>
+   <div class="page-body"><div class="container-xl">
+     <div class="row row-cards">
+@@ -22,8 +24,8 @@ import { PageHeader } from '../shared/page-header';
+               <div class="mt-3"><span class="badge bg-blue-lt">{{ c.city }}</span></div>
+             </div>
+             <div class="d-flex">
+-              <div class="card-btn flex-fill text-center py-2 border-end"><div class="h3 mb-0">{{ c.orders }}</div><div class="small text-secondary">Orders</div></div>
+-              <div class="card-btn flex-fill text-center py-2"><div class="h3 mb-0">{{ c.spent | currency: 'USD' : 'symbol' : '1.0-0' }}</div><div class="small text-secondary">Spent</div></div>
++              <div class="card-btn flex-fill text-center py-2 border-end"><div class="h3 mb-0">{{ c.orders }}</div><div class="small text-secondary">{{ 'Orders' | t }}</div></div>
++              <div class="card-btn flex-fill text-center py-2"><div class="h3 mb-0">{{ c.spent | currency: 'USD' : 'symbol' : '1.0-0' }}</div><div class="small text-secondary">{{ 'Spent' | t }}</div></div>
+             </div>
+           </div>
+         </div>
+diff --git a/src/app/pages/dashboard.ts b/src/app/pages/dashboard.ts
+index cf0ff08..eda2b3c 100644
+--- a/src/app/pages/dashboard.ts
++++ b/src/app/pages/dashboard.ts
+@@ -5,12 +5,14 @@ import { DataService } from '../core/data.service';
+ import { PageHeader } from '../shared/page-header';
+ import { AreaChart, BarChart, Donut } from '../shared/charts';
+ 
++import { Tr } from '../core/i18n.service';
++
+ @Component({
+   selector: 'app-dashboard',
+-  imports: [CurrencyPipe, DatePipe, RouterLink, PageHeader, AreaChart, BarChart, Donut],
++  imports: [Tr, CurrencyPipe, DatePipe, RouterLink, PageHeader, AreaChart, BarChart, Donut],
+   template: `
+   <app-page-header title="Dashboard" pretitle="Overview">
+-    <a routerLink="/orders" class="btn btn-primary"><i class="ti ti-plus me-1"></i>New sales order</a>
++    <a routerLink="/orders" class="btn btn-primary"><i class="ti ti-plus me-1"></i>{{ 'New sales order' | t }}</a>
+   </app-page-header>
+   <div class="page-body">
+     <div class="container-xl">
+@@ -20,7 +22,7 @@ import { AreaChart, BarChart, Donut } from '../shared/charts';
+             <div class="card">
+               <div class="card-body">
+                 <div class="d-flex align-items-center">
+-                  <div class="subheader">{{ k.label }}</div>
++                  <div class="subheader">{{ k.label | t }}</div>
+                   <div class="ms-auto lh-1 {{ k.up ? 'text-green' : 'text-red' }}">
+                     {{ k.delta }}<i class="ti ms-1" [class.ti-trending-up]="k.up" [class.ti-trending-down]="!k.up"></i>
+                   </div>
+@@ -34,10 +36,10 @@ import { AreaChart, BarChart, Donut } from '../shared/charts';
+ 
+         <div class="col-lg-8">
+           <div class="card">
+-            <div class="card-header"><h3 class="card-title">Revenue vs expenses (thousands, 2026)</h3>
++            <div class="card-header"><h3 class="card-title">{{ 'Revenue vs expenses (thousands, 2026)' | t }}</h3>
+               <div class="card-actions d-flex gap-3 small">
+-                <span><span class="badge bg-primary me-1"> </span>Revenue</span>
+-                <span><span class="badge me-1" style="background:#79a6dc"> </span>Expenses</span>
++                <span><span class="badge bg-primary me-1"> </span>{{ 'Revenue' | t }}</span>
++                <span><span class="badge me-1" style="background:#79a6dc"> </span>{{ 'Expenses' | t }}</span>
+               </div>
+             </div>
+             <div class="card-body"><app-bar-chart [labels]="data.months" [a]="data.revenue" [b]="data.expenses" label="Revenue versus expenses by month" /></div>
+@@ -46,14 +48,14 @@ import { AreaChart, BarChart, Donut } from '../shared/charts';
+ 
+         <div class="col-lg-4">
+           <div class="card">
+-            <div class="card-header"><h3 class="card-title">Sales by category</h3></div>
++            <div class="card-header"><h3 class="card-title">{{ 'Sales by category' | t }}</h3></div>
+             <div class="card-body text-center">
+               <app-donut [data]="data.categories" label="Sales by category" />
+               <div class="mt-3 text-start">
+                 @for (c of data.categories; track c.label) {
+                   <div class="d-flex align-items-center mb-2">
+                     <span class="legend me-2 rounded" [style.background]="c.color"></span>
+-                    <span>{{ c.label }}</span><span class="ms-auto text-secondary">{{ c.value }}%</span>
++                    <span>{{ c.label | t }}</span><span class="ms-auto text-secondary">{{ c.value }}%</span>
+                   </div>
+                 }
+               </div>
+@@ -63,18 +65,18 @@ import { AreaChart, BarChart, Donut } from '../shared/charts';
+ 
+         <div class="col-lg-8">
+           <div class="card">
+-            <div class="card-header"><h3 class="card-title">Recent sales orders</h3>
+-              <div class="card-actions"><a routerLink="/orders" class="btn btn-sm">View all</a></div>
++            <div class="card-header"><h3 class="card-title">{{ 'Recent sales orders' | t }}</h3>
++              <div class="card-actions"><a routerLink="/orders" class="btn btn-sm">{{ 'View all' | t }}</a></div>
+             </div>
+             <div class="table-responsive">
+               <table class="table card-table table-vcenter text-nowrap">
+-                <thead><tr><th>Order</th><th>Customer</th><th>Date</th><th class="text-end">Total</th><th>Status</th></tr></thead>
++                <thead><tr><th>{{ 'Order' | t }}</th><th>{{ 'Customer' | t }}</th><th>{{ 'Date' | t }}</th><th class="text-end">{{ 'Total' | t }}</th><th>{{ 'Status' | t }}</th></tr></thead>
+                 <tbody>
+                   @for (o of data.orders.slice(0, 6); track o.id) {
+                     <tr>
+                       <td class="fw-medium">{{ o.id }}</td><td>{{ o.customer }}</td><td class="text-secondary">{{ o.date | date: 'mediumDate' }}</td>
+                       <td class="text-end">{{ o.total | currency: 'USD' : 'symbol' : '1.0-0' }}</td>
+-                      <td><span class="badge bg-{{ data.statusColor(o.status) }}-lt">{{ o.status }}</span></td>
++                      <td><span class="badge bg-{{ data.statusColor(o.status) }}-lt">{{ o.status | t }}</span></td>
+                     </tr>
+                   }
+                 </tbody>
+@@ -85,11 +87,11 @@ import { AreaChart, BarChart, Donut } from '../shared/charts';
+ 
+         <div class="col-lg-4">
+           <div class="card">
+-            <div class="card-header"><h3 class="card-title">Needs restocking</h3></div>
++            <div class="card-header"><h3 class="card-title">{{ 'Needs restocking' | t }}</h3></div>
+             <div class="list-group list-group-flush">
+               @for (p of lowStock; track p.sku) {
+                 <div class="list-group-item">
+-                  <div class="d-flex justify-content-between mb-1"><span>{{ p.name }}</span><span class="text-red">{{ p.stock }} left</span></div>
++                  <div class="d-flex justify-content-between mb-1"><span>{{ p.name }}</span><span class="text-red">{{ p.stock }} {{ 'left' | t }}</span></div>
+                   <div class="progress progress-sm"><div class="progress-bar bg-red" [style.width.%]="(p.stock / p.reorderAt) * 100"></div></div>
+                 </div>
+               }
+@@ -99,7 +101,7 @@ import { AreaChart, BarChart, Donut } from '../shared/charts';
+ 
+         <div class="col-12">
+           <div class="card">
+-            <div class="card-header"><h3 class="card-title">Team activity</h3></div>
++            <div class="card-header"><h3 class="card-title">{{ 'Team activity' | t }}</h3></div>
+             <div class="list-group list-group-flush">
+               @for (a of data.activity; track a.what) {
+                 <div class="list-group-item">
+diff --git a/src/app/pages/employees.ts b/src/app/pages/employees.ts
+index c161aba..7ad84b7 100644
+--- a/src/app/pages/employees.ts
++++ b/src/app/pages/employees.ts
+@@ -3,18 +3,20 @@ import { DatePipe } from '@angular/common';
+ import { DataService } from '../core/data.service';
+ import { PageHeader } from '../shared/page-header';
+ 
++import { Tr } from '../core/i18n.service';
++
+ @Component({
+   selector: 'app-employees',
+-  imports: [DatePipe, PageHeader],
++  imports: [Tr, DatePipe, PageHeader],
+   template: `
+   <app-page-header title="Employees" pretitle="Human resources">
+-    <button class="btn btn-primary" type="button"><i class="ti ti-plus me-1"></i>Add employee</button>
++    <button class="btn btn-primary" type="button"><i class="ti ti-plus me-1"></i>{{ 'Add employee' | t }}</button>
+   </app-page-header>
+   <div class="page-body"><div class="container-xl">
+     <div class="card">
+       <div class="table-responsive">
+         <table class="table card-table table-vcenter text-nowrap">
+-          <thead><tr><th>Employee</th><th>Role</th><th>Department</th><th>Joined</th><th>Status</th></tr></thead>
++          <thead><tr><th>{{ 'Employee' | t }}</th><th>{{ 'Role' | t }}</th><th>{{ 'Department' | t }}</th><th>{{ 'Joined' | t }}</th><th>{{ 'Status' | t }}</th></tr></thead>
+           <tbody>
+             @for (e of data.employees; track e.id) {
+               <tr>
+@@ -22,8 +24,8 @@ import { PageHeader } from '../shared/page-header';
+                   <span class="avatar avatar-sm">{{ data.initials(e.name) }}</span>
+                   <div><div class="fw-medium">{{ e.name }}</div><div class="small text-secondary">{{ e.email }}</div></div>
+                 </div></td>
+-                <td>{{ e.role }}</td><td>{{ e.department }}</td><td class="text-secondary">{{ e.joined | date: 'MMM y' }}</td>
+-                <td><span class="badge bg-{{ data.statusColor(e.status) }}-lt">{{ e.status }}</span></td>
++                <td>{{ e.role | t }}</td><td>{{ e.department | t }}</td><td class="text-secondary">{{ e.joined | date: 'MMM y' }}</td>
++                <td><span class="badge bg-{{ data.statusColor(e.status) }}-lt">{{ e.status | t }}</span></td>
+               </tr>
+             }
+           </tbody>
+diff --git a/src/app/pages/inventory.ts b/src/app/pages/inventory.ts
+index 88f4aee..9e3d08e 100644
+--- a/src/app/pages/inventory.ts
++++ b/src/app/pages/inventory.ts
+@@ -3,27 +3,29 @@ import { CurrencyPipe } from '@angular/common';
+ import { DataService } from '../core/data.service';
+ import { PageHeader } from '../shared/page-header';
+ 
++import { Tr } from '../core/i18n.service';
++
+ @Component({
+   selector: 'app-inventory',
+-  imports: [CurrencyPipe, PageHeader],
++  imports: [Tr, CurrencyPipe, PageHeader],
+   template: `
+   <app-page-header title="Inventory" pretitle="Warehouse">
+-    <button class="btn btn-primary" type="button"><i class="ti ti-plus me-1"></i>Add product</button>
++    <button class="btn btn-primary" type="button"><i class="ti ti-plus me-1"></i>{{ 'Add product' | t }}</button>
+   </app-page-header>
+   <div class="page-body"><div class="container-xl">
+     <div class="row row-cards mb-3">
+-      <div class="col-sm-4"><div class="card card-body"><div class="subheader">Products</div><div class="h1 mb-0">{{ data.products.length }}</div></div></div>
+-      <div class="col-sm-4"><div class="card card-body"><div class="subheader">Below reorder level</div><div class="h1 mb-0 text-red">{{ low }}</div></div></div>
+-      <div class="col-sm-4"><div class="card card-body"><div class="subheader">Stock value</div><div class="h1 mb-0">{{ value | currency: 'USD' : 'symbol' : '1.0-0' }}</div></div></div>
++      <div class="col-sm-4"><div class="card card-body"><div class="subheader">{{ 'Products' | t }}</div><div class="h1 mb-0">{{ data.products.length }}</div></div></div>
++      <div class="col-sm-4"><div class="card card-body"><div class="subheader">{{ 'Below reorder level' | t }}</div><div class="h1 mb-0 text-red">{{ low }}</div></div></div>
++      <div class="col-sm-4"><div class="card card-body"><div class="subheader">{{ 'Stock value' | t }}</div><div class="h1 mb-0">{{ value | currency: 'USD' : 'symbol' : '1.0-0' }}</div></div></div>
+     </div>
+     <div class="card">
+       <div class="table-responsive">
+         <table class="table card-table table-vcenter text-nowrap">
+-          <thead><tr><th>SKU</th><th>Product</th><th>Category</th><th style="width:22%">Stock level</th><th class="text-end">Unit price</th><th>Status</th></tr></thead>
++          <thead><tr><th>{{ 'SKU' | t }}</th><th>{{ 'Product' | t }}</th><th>{{ 'Category' | t }}</th><th style="width:22%">{{ 'Stock level' | t }}</th><th class="text-end">{{ 'Unit price' | t }}</th><th>{{ 'Status' | t }}</th></tr></thead>
+           <tbody>
+             @for (p of data.products; track p.sku) {
+               <tr>
+-                <td class="text-secondary">{{ p.sku }}</td><td class="fw-medium">{{ p.name }}</td><td>{{ p.category }}</td>
++                <td class="text-secondary">{{ p.sku }}</td><td class="fw-medium">{{ p.name }}</td><td>{{ p.category | t }}</td>
+                 <td>
+                   <div class="d-flex align-items-center gap-2">
+                     <div class="progress progress-sm flex-fill"><div class="progress-bar" [class.bg-red]="p.stock <= p.reorderAt" [class.bg-green]="p.stock > p.reorderAt" [style.width.%]="Math.min(100, (p.stock / (p.reorderAt * 3)) * 100)"></div></div>
+@@ -31,7 +33,7 @@ import { PageHeader } from '../shared/page-header';
+                   </div>
+                 </td>
+                 <td class="text-end">{{ p.price | currency: 'USD' }}</td>
+-                <td>@if (p.stock <= p.reorderAt) { <span class="badge bg-red-lt">Reorder</span> } @else { <span class="badge bg-green-lt">In stock</span> }</td>
++                <td>@if (p.stock <= p.reorderAt) { <span class="badge bg-red-lt">{{ 'Reorder' | t }}</span> } @else { <span class="badge bg-green-lt">{{ 'In stock' | t }}</span> }</td>
+               </tr>
+             }
+           </tbody>
+diff --git a/src/app/pages/login.ts b/src/app/pages/login.ts
+new file mode 100644
+index 0000000..42c129b
+--- /dev/null
++++ b/src/app/pages/login.ts
+@@ -0,0 +1,57 @@
++import { Component, inject, signal } from '@angular/core';
++import { FormsModule } from '@angular/forms';
++import { ActivatedRoute, Router } from '@angular/router';
++import { Auth } from '../core/auth.service';
++import { I18n } from '../core/i18n.service';
++
++import { Tr } from '../core/i18n.service';
++
++@Component({
++  selector: 'app-login',
++  imports: [Tr, FormsModule],
++  template: `
++  <div class="page page-center">
++    <div class="container container-tight py-4">
++      <div class="text-center mb-4">
++        <span class="avatar avatar-lg bg-primary text-white"><i class="ti ti-building-factory-2"></i></span>
++        <h1 class="h2 mt-3">{{ 'ERP Suite' | t }}</h1>
++      </div>
++      <div class="card card-md">
++        <div class="card-body">
++          <h2 class="h2 text-center mb-4">{{ 'Sign in to your account' | t }}</h2>
++          <form (ngSubmit)="submit()" novalidate>
++            @if (error()) { <div class="alert alert-danger" role="alert">{{ 'Invalid email or password.' | t }}</div> }
++            <div class="mb-3">
++              <label class="form-label" for="email">{{ 'Email' | t }}</label>
++              <input id="email" name="email" type="email" class="form-control" autocomplete="username" [(ngModel)]="email" required>
++            </div>
++            <div class="mb-3">
++              <label class="form-label" for="password">{{ 'Password' | t }}</label>
++              <input id="password" name="password" type="password" class="form-control" autocomplete="current-password" [(ngModel)]="password" required>
++            </div>
++            <button type="submit" class="btn btn-primary w-100">{{ 'Sign in' | t }}</button>
++          </form>
++        </div>
++      </div>
++      <div class="text-center text-secondary mt-3">{{ 'Demo account: admin@erp.com / admin123' | t }}</div>
++      <div class="text-center mt-2">
++        <button type="button" class="btn btn-link" (click)="i18n.toggle()">{{ i18n.lang() === 'ar' ? 'English' : 'العربية' }}</button>
++      </div>
++    </div>
++  </div>`
++})
++export class Login {
++  private auth = inject(Auth);
++  private router = inject(Router);
++  private route = inject(ActivatedRoute);
++  i18n = inject(I18n);
++  email = '';
++  password = '';
++  error = signal(false);
++
++  submit() {
++    if (!this.auth.login(this.email, this.password)) { this.error.set(true); return; }
++    const back = this.route.snapshot.queryParamMap.get('returnUrl');
++    this.router.navigateByUrl(back && back.startsWith('/') && !back.startsWith('//') ? back : '/');
++  }
++}
+diff --git a/src/app/pages/orders.ts b/src/app/pages/orders.ts
+index eeeb7c3..885be1e 100644
+--- a/src/app/pages/orders.ts
++++ b/src/app/pages/orders.ts
+@@ -3,47 +3,49 @@ import { CurrencyPipe, DatePipe } from '@angular/common';
+ import { DataService, OrderStatus } from '../core/data.service';
+ import { PageHeader } from '../shared/page-header';
+ 
++import { Tr } from '../core/i18n.service';
++
+ @Component({
+   selector: 'app-orders',
+-  imports: [CurrencyPipe, DatePipe, PageHeader],
++  imports: [Tr, CurrencyPipe, DatePipe, PageHeader],
+   template: `
+   <app-page-header title="Sales orders" pretitle="Sales">
+-    <button class="btn btn-primary" type="button"><i class="ti ti-plus me-1"></i>New sales order</button>
++    <button class="btn btn-primary" type="button"><i class="ti ti-plus me-1"></i>{{ 'New sales order' | t }}</button>
+   </app-page-header>
+   <div class="page-body"><div class="container-xl">
+     <div class="card">
+       <div class="card-body border-bottom py-3">
+         <div class="d-flex flex-wrap gap-2 align-items-center">
+-          <div class="text-secondary">{{ filtered().length }} orders</div>
++          <div class="text-secondary">{{ filtered().length }} {{ 'orders' | t }}</div>
+           <select class="form-select w-auto ms-auto" aria-label="Filter by status" (change)="setStatus($any($event.target).value)">
+-            <option value="">All statuses</option>
+-            @for (s of statuses; track s) { <option [value]="s">{{ s }}</option> }
++            <option value="">{{ 'All statuses' | t }}</option>
++            @for (s of statuses; track s) { <option [value]="s">{{ s | t }}</option> }
+           </select>
+-          <input class="form-control w-auto" placeholder="Search order or customer" aria-label="Search orders" (input)="setQuery($any($event.target).value)">
++          <input class="form-control w-auto" [placeholder]="'Search order or customer' | t" aria-label="Search orders" (input)="setQuery($any($event.target).value)">
+         </div>
+       </div>
+       <div class="table-responsive">
+         <table class="table card-table table-vcenter text-nowrap table-hover">
+-          <thead><tr><th>Order</th><th>Customer</th><th>Date</th><th>Items</th><th class="text-end">Total</th><th>Status</th></tr></thead>
++          <thead><tr><th>{{ 'Order' | t }}</th><th>{{ 'Customer' | t }}</th><th>{{ 'Date' | t }}</th><th>{{ 'Items' | t }}</th><th class="text-end">{{ 'Total' | t }}</th><th>{{ 'Status' | t }}</th></tr></thead>
+           <tbody>
+             @for (o of pageRows(); track o.id) {
+               <tr>
+                 <td class="fw-medium">{{ o.id }}</td><td>{{ o.customer }}</td>
+                 <td class="text-secondary">{{ o.date | date: 'mediumDate' }}</td><td>{{ o.items }}</td>
+                 <td class="text-end">{{ o.total | currency: 'USD' : 'symbol' : '1.0-0' }}</td>
+-                <td><span class="badge bg-{{ data.statusColor(o.status) }}-lt">{{ o.status }}</span></td>
++                <td><span class="badge bg-{{ data.statusColor(o.status) }}-lt">{{ o.status | t }}</span></td>
+               </tr>
+             } @empty {
+-              <tr><td colspan="6" class="text-center text-secondary py-5">No orders match your filters. Clear the search or choose another status.</td></tr>
++              <tr><td colspan="6" class="text-center text-secondary py-5">{{ 'No orders match your filters. Clear the search or choose another status.' | t }}</td></tr>
+             }
+           </tbody>
+         </table>
+       </div>
+       <div class="card-footer d-flex align-items-center">
+-        <p class="m-0 text-secondary">Page {{ page() }} of {{ pages() }}</p>
++        <p class="m-0 text-secondary">{{ 'Page' | t }} {{ page() }} {{ 'of' | t }} {{ pages() }}</p>
+         <ul class="pagination m-0 ms-auto">
+-          <li class="page-item" [class.disabled]="page() === 1"><button class="page-link" type="button" (click)="page.set(page() - 1)"><i class="ti ti-chevron-left"></i> Previous</button></li>
+-          <li class="page-item" [class.disabled]="page() === pages()"><button class="page-link" type="button" (click)="page.set(page() + 1)">Next <i class="ti ti-chevron-right"></i></button></li>
++          <li class="page-item" [class.disabled]="page() === 1"><button class="page-link" type="button" (click)="page.set(page() - 1)"><i class="ti ti-chevron-left"></i> {{ 'Previous' | t }}</button></li>
++          <li class="page-item" [class.disabled]="page() === pages()"><button class="page-link" type="button" (click)="page.set(page() + 1)">{{ 'Next' | t }} <i class="ti ti-chevron-right"></i></button></li>
+         </ul>
+       </div>
+     </div>
+diff --git a/src/app/pages/purchasing.ts b/src/app/pages/purchasing.ts
+new file mode 100644
+index 0000000..8f21829
+--- /dev/null
++++ b/src/app/pages/purchasing.ts
+@@ -0,0 +1,57 @@
++import { Component, computed, inject, signal } from '@angular/core';
++import { CurrencyPipe, DatePipe } from '@angular/common';
++import { DataService } from '../core/data.service';
++import { PageHeader } from '../shared/page-header';
++
++import { Tr } from '../core/i18n.service';
++
++@Component({
++  selector: 'app-purchasing',
++  imports: [Tr, CurrencyPipe, DatePipe, PageHeader],
++  template: `
++  <app-page-header title="Purchasing" pretitle="Procurement">
++    <button class="btn btn-primary" type="button"><i class="ti ti-plus me-1"></i>{{ 'New purchase order' | t }}</button>
++  </app-page-header>
++  <div class="page-body"><div class="container-xl">
++    <div class="row row-cards mb-3">
++      <div class="col-sm-4"><div class="card card-body"><div class="subheader">{{ 'Open purchase orders' | t }}</div><div class="h1 mb-0">{{ open }}</div></div></div>
++      <div class="col-sm-4"><div class="card card-body"><div class="subheader">{{ 'Awaiting approval' | t }}</div><div class="h1 mb-0 text-orange">{{ drafts }}</div></div></div>
++      <div class="col-sm-4"><div class="card card-body"><div class="subheader">{{ 'Spend this month' | t }}</div><div class="h1 mb-0">{{ spend | currency: 'USD' : 'symbol' : '1.0-0' }}</div></div></div>
++    </div>
++    <div class="card">
++      <div class="card-body border-bottom py-3 d-flex align-items-center">
++        <div class="text-secondary">{{ rows().length }} {{ 'orders' | t }}</div>
++        <select class="form-select w-auto ms-auto" aria-label="Filter by status" (change)="status.set($any($event.target).value)">
++          <option value="">{{ 'All statuses' | t }}</option>
++          @for (s of statuses; track s) { <option [value]="s">{{ s | t }}</option> }
++        </select>
++      </div>
++      <div class="table-responsive">
++        <table class="table card-table table-vcenter text-nowrap table-hover">
++          <thead><tr><th>{{ 'Order' | t }}</th><th>{{ 'Vendor' | t }}</th><th>{{ 'Date' | t }}</th><th>{{ 'Expected' | t }}</th><th class="text-end">{{ 'Total' | t }}</th><th>{{ 'Status' | t }}</th></tr></thead>
++          <tbody>
++            @for (po of rows(); track po.id) {
++              <tr>
++                <td class="fw-medium">{{ po.id }}</td><td>{{ po.vendor }}</td>
++                <td class="text-secondary">{{ po.date | date: 'mediumDate' }}</td><td class="text-secondary">{{ po.expected | date: 'mediumDate' }}</td>
++                <td class="text-end">{{ po.total | currency: 'USD' : 'symbol' : '1.0-0' }}</td>
++                <td><span class="badge bg-{{ data.statusColor(po.status) }}-lt">{{ po.status | t }}</span></td>
++              </tr>
++            } @empty {
++              <tr><td colspan="6" class="text-center text-secondary py-5">{{ 'No orders match your filters. Clear the search or choose another status.' | t }}</td></tr>
++            }
++          </tbody>
++        </table>
++      </div>
++    </div>
++  </div></div>`
++})
++export class Purchasing {
++  data = inject(DataService);
++  statuses = ['Draft', 'Approved', 'Received', 'Cancelled'];
++  status = signal('');
++  rows = computed(() => this.data.purchaseOrders.filter(p => !this.status() || p.status === this.status()));
++  open = this.data.purchaseOrders.filter(p => p.status === 'Draft' || p.status === 'Approved').length;
++  drafts = this.data.purchaseOrders.filter(p => p.status === 'Draft').length;
++  spend = this.data.purchaseOrders.filter(p => p.status !== 'Cancelled').reduce((s, p) => s + p.total, 0);
++}
+diff --git a/src/app/shared/page-header.ts b/src/app/shared/page-header.ts
+index 3868a9b..e5fa5e7 100644
+--- a/src/app/shared/page-header.ts
++++ b/src/app/shared/page-header.ts
+@@ -1,14 +1,17 @@
+ import { Component, input } from '@angular/core';
+ 
++import { Tr } from '../core/i18n.service';
++
+ @Component({
+   selector: 'app-page-header',
++  imports: [Tr],
+   template: `
+   <div class="page-header d-print-none">
+     <div class="container-xl">
+       <div class="row g-2 align-items-center">
+         <div class="col">
+-          <div class="page-pretitle">{{ pretitle() }}</div>
+-          <h2 class="page-title">{{ title() }}</h2>
++          <div class="page-pretitle">{{ pretitle() | t }}</div>
++          <h2 class="page-title">{{ title() | t }}</h2>
+         </div>
+         <div class="col-auto ms-auto"><ng-content /></div>
+       </div>
+diff --git a/src/index.html b/src/index.html
+index 8ddf778..ae3f11f 100644
+--- a/src/index.html
++++ b/src/index.html
+@@ -1,11 +1,15 @@
+ <!doctype html>
+-<html lang="en" data-bs-theme="light">
++<html lang="en" dir="ltr" data-bs-theme="light">
+ <head>
+   <meta charset="utf-8">
+   <title>ERP Dashboard</title>
+   <base href="/">
+   <meta name="viewport" content="width=device-width, initial-scale=1">
+   <link rel="icon" type="image/x-icon" href="favicon.ico">
++  <link rel="preconnect" href="https://fonts.googleapis.com">
++  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
++  <link id="tabler-css" rel="stylesheet" href="tabler-ltr.css">
++  <script>try{if(localStorage.getItem('lang')==='ar'){var d=document.documentElement;d.lang='ar';d.dir='rtl';document.getElementById('tabler-css').href='tabler-rtl.css'}}catch(e){}</script>
+ </head>
+ <body>
+   <app-root></app-root>
+diff --git a/src/styles.scss b/src/styles.scss
+index 4a1dcfc..5fc0155 100644
+--- a/src/styles.scss
++++ b/src/styles.scss
+@@ -2,3 +2,6 @@
+ body { font-feature-settings: 'cv03', 'cv04', 'cv11'; }
+ .table-responsive { overflow-x: auto; }
+ .chart-svg { display: block; width: 100%; }
++
++html[dir='rtl'] { --tblr-font-sans-serif: 'Noto Sans Arabic', 'Inter', sans-serif; }
++[dir='rtl'] .ti-chevron-left, [dir='rtl'] .ti-chevron-right { transform: scaleX(-1); }
+-- 
+2.43.0
+

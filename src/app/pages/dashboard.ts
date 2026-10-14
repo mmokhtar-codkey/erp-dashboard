@@ -24,7 +24,7 @@ import { Tr } from '../core/i18n.service';
                 <div class="d-flex align-items-center">
                   <div class="subheader">{{ k.label | t }}</div>
                   <div class="ms-auto lh-1 {{ k.up ? 'text-green' : 'text-red' }}">
-                    {{ k.delta }}<i class="ti ms-1" [class.ti-trending-up]="k.up" [class.ti-trending-down]="!k.up"></i>
+                    <span dir="ltr">{{ k.delta }}</span><i class="ti ms-1" [class.ti-trending-up]="k.up" [class.ti-trending-down]="!k.up"></i>
                   </div>
                 </div>
                 <div class="h1 mb-3 mt-1">{{ k.value }}</div>
